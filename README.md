@@ -113,3 +113,248 @@ Kelompok kami memilih **VLSM** untuk diimplementasikan di Packet Tracer, dengan 
    Seluruh subnet berada di 10.96.0.0 – 10.96.241.63, dan link tambahan Mid-Project (L7 dan Tunnel0) dapat ditempatkan langsung setelah link L6 tanpa menggeser subnet lain.
 
 **Konsekuensi yang kami terima:** karena alamat LAN milik satu router tidak berdekatan (contoh: CCTV Kota 10.96.96.0/19 dan Server dan Storage DC 10.96.239.0/24, keduanya di R-DC), rute tidak dapat diringkas per router. R-PUSAT memerlukan satu static route untuk setiap LAN di bawahnya (dua rute per router).
+
+## 3. Konfigurasi Dasar dan IP Address Interface
+
+Sebelum routing dikonfigurasi, setiap router diberi **hostname** dan **alamat IP** pada setiap port yang dipakai, lalu port dinyalakan. Tahap ini menjadi dasar untuk soal 3: router hanya mengenal jaringan yang terhubung langsung (*connected*), sehingga link antar-router harus hidup lebih dulu sebelum static route dipasang.
+
+### 3.1 Aturan pengalamatan
+- **Gateway LAN** = host pertama setiap subnet VLSM (contoh: CCTV Kota 10.96.96.0/19 → gateway 10.96.96.1).
+- **Link antar-router /30**: router atas memakai host pertama, router bawah memakai host kedua (contoh: L1 10.96.241.32/30 → R-PUSAT .33, R-DC .34).
+- **Sisi DCE** kabel serial (R-PUSAT untuk L1–L5, R-UTARA untuk L6) diberi `clock rate 2000000`.
+- **Link ISP** memakai IP publik simulasi 203.0.113.48/30 (R-PUSAT .49, R-ISP .50).
+
+### 3.2 Arti perintah
+
+| Perintah | Fungsi |
+|---|---|
+| `enable` | Masuk mode privileged (`Router#`) |
+| `configure terminal` | Masuk mode konfigurasi global (`Router(config)#`) |
+| `hostname R-PUSAT` | Mengganti nama router |
+| `no ip domain-lookup` | Mencegah CLI menunggu lama saat salah ketik perintah |
+| `interface …` | Memilih port yang dikonfigurasi |
+| `description …` | Catatan fungsi port |
+| `ip address <IP> <mask>` | Memberi alamat IP pada port |
+| `clock rate 2000000` | Sinyal clock pada sisi DCE kabel serial |
+| `no shutdown` | Menyalakan port (port router Cisco mati secara default) |
+| `write memory` | Menyimpan konfigurasi ke NVRAM |
+
+### 3.3 Konfigurasi setiap router
+
+**R-PUSAT**
+```
+enable
+configure terminal
+hostname R-PUSAT
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description Link ke R-ISP
+ ip address 203.0.113.49 255.255.255.252
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Pegawai Balai Kota
+ ip address 10.96.224.1 255.255.248.0
+ no shutdown
+interface GigabitEthernet0/2
+ description LAN Server Balai Kota
+ ip address 10.96.241.1 255.255.255.224
+ no shutdown
+interface Serial0/0/0
+ description L1 ke R-DC
+ ip address 10.96.241.33 255.255.255.252
+ clock rate 2000000
+ no shutdown
+interface Serial0/0/1
+ description L2 ke R-UTARA
+ ip address 10.96.241.37 255.255.255.252
+ clock rate 2000000
+ no shutdown
+interface Serial0/1/0
+ description L3 ke R-SELATAN
+ ip address 10.96.241.41 255.255.255.252
+ clock rate 2000000
+ no shutdown
+interface Serial0/1/1
+ description L4 ke R-TIMUR
+ ip address 10.96.241.45 255.255.255.252
+ clock rate 2000000
+ no shutdown
+interface Serial0/2/0
+ description L5 ke R-BARAT
+ ip address 10.96.241.49 255.255.255.252
+ clock rate 2000000
+ no shutdown
+end
+write memory
+```
+
+**R-ISP**
+```
+enable
+configure terminal
+hostname R-ISP
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description Link ke R-PUSAT
+ ip address 203.0.113.50 255.255.255.252
+ no shutdown
+interface GigabitEthernet0/1
+ description Gateway server internet 8.8.8.8
+ ip address 8.8.8.1 255.255.255.0
+ no shutdown
+end
+write memory
+```
+
+**R-DC**
+```
+enable
+configure terminal
+hostname R-DC
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN CCTV Kota
+ ip address 10.96.96.1 255.255.224.0
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Server dan Storage DC
+ ip address 10.96.239.1 255.255.255.0
+ no shutdown
+interface Serial0/0/0
+ description L1 ke R-PUSAT
+ ip address 10.96.241.34 255.255.255.252
+ no shutdown
+end
+write memory
+```
+
+**R-UTARA**
+```
+enable
+configure terminal
+hostname R-UTARA
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN WiFi Publik Utara
+ ip address 10.96.0.1 255.255.192.0
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Sensor Lalu Lintas Utara
+ ip address 10.96.236.1 255.255.254.0
+ no shutdown
+interface Serial0/0/0
+ description L2 ke R-PUSAT
+ ip address 10.96.241.38 255.255.255.252
+ no shutdown
+interface Serial0/0/1
+ description L6 ke R-PELABUHAN
+ ip address 10.96.241.53 255.255.255.252
+ clock rate 2000000
+ no shutdown
+end
+write memory
+```
+
+**R-PELABUHAN**
+```
+enable
+configure terminal
+hostname R-PELABUHAN
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN Kantor Pelabuhan
+ ip address 10.96.240.1 255.255.255.128
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Sensor dan SCADA Pelabuhan
+ ip address 10.96.160.1 255.255.224.0
+ no shutdown
+interface Serial0/0/0
+ description L6 ke R-UTARA
+ ip address 10.96.241.54 255.255.255.252
+ no shutdown
+end
+write memory
+```
+
+**R-SELATAN**
+```
+enable
+configure terminal
+hostname R-SELATAN
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN WiFi Publik Selatan
+ ip address 10.96.64.1 255.255.224.0
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN PJU Pintar Selatan
+ ip address 10.96.240.129 255.255.255.128
+ no shutdown
+interface Serial0/0/0
+ description L3 ke R-PUSAT
+ ip address 10.96.241.42 255.255.255.252
+ no shutdown
+end
+write memory
+```
+
+**R-TIMUR**
+```
+enable
+configure terminal
+hostname R-TIMUR
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN WiFi Publik Timur
+ ip address 10.96.128.1 255.255.224.0
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Sensor Banjir Timur
+ ip address 10.96.232.1 255.255.252.0
+ no shutdown
+interface Serial0/0/0
+ description L4 ke R-PUSAT
+ ip address 10.96.241.46 255.255.255.252
+ no shutdown
+end
+write memory
+```
+
+**R-BARAT**
+```
+enable
+configure terminal
+hostname R-BARAT
+no ip domain-lookup
+interface GigabitEthernet0/0
+ description LAN WiFi Publik Barat
+ ip address 10.96.192.1 255.255.224.0
+ no shutdown
+interface GigabitEthernet0/1
+ description LAN Puskesmas dan Sekolah Barat
+ ip address 10.96.238.1 255.255.255.0
+ no shutdown
+interface Serial0/0/0
+ description L5 ke R-PUSAT
+ ip address 10.96.241.50 255.255.255.252
+ no shutdown
+end
+write memory
+```
+
+### 3.4 Pengujian
+
+Setiap link diuji dengan ping dari router atas ke IP router bawah:
+
+| Dari | Perintah | IP milik | Link | Hasil |
+|---|---|---|---|---|
+| R-PUSAT | `ping 10.96.241.34` | R-DC Serial0/0/0 | L1 | <img width="999" height="135" alt="image" src="https://github.com/user-attachments/assets/77b571a3-6de0-4ff3-847a-e12250209500" />|
+| R-PUSAT | `ping 10.96.241.38` | R-UTARA Serial0/0/0 | L2 | `!!!!!` 100% |
+| R-PUSAT | `ping 10.96.241.42` | R-SELATAN Serial0/0/0 | L3 | `!!!!!` 100% |
+| R-PUSAT | `ping 10.96.241.46` | R-TIMUR Serial0/0/0 | L4 | `!!!!!` 100% |
+| R-PUSAT | `ping 10.96.241.50` | R-BARAT Serial0/0/0 | L5 | `!!!!!` 100% |
+| R-PUSAT | `ping 203.0.113.50` | R-ISP GigabitEthernet0/0 | ISP | `.!!!!` 80% |
+| R-UTARA | `ping 10.96.241.54` | R-PELABUHAN Serial0/0/0 | L6 | <img width="898" height="165" alt="image" src="https://github.com/user-attachments/assets/93c4e453-10bf-44e1-9d6a-a3cf19d3ce24" />|
+
+
