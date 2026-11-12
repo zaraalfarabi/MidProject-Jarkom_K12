@@ -7,3 +7,6 @@
 | Az Zahra Fiddien Al Farabi          | 5027251021 |
 | M. Razan Azizi Djauhari | 5027251086 |
 | Rheza Pramudita Adi Putra | 5027251090|
+
+## Topologi 
+![alt text](image.png)
