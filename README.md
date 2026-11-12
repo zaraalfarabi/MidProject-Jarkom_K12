@@ -359,3 +359,179 @@ Setiap link diuji dengan ping dari router atas ke IP router bawah:
 
 > Link R-PUSAT ↔ R-ISP memakai 203.0.113.48/30 (R-PUSAT .49, R-ISP .50) sebagai IP publik simulasi. Blok 203.0.113.0/24 adalah alamat khusus dokumentasi (RFC 5737), sehingga tidak bentrok dengan alamat internet sungguhan dan tidak termasuk tabel subnetting VLSM kelompok.
 
+
+## 4. Static Routing 
+
+### 4.1 Konsep
+Setelah Tahap 1, setiap router hanya mengenal jaringan yang **terhubung langsung** (*connected*). Agar LAN di wilayah berbeda dapat saling berkomunikasi, setiap router diberi **static route**, yaitu petunjuk manual: *"untuk mencapai jaringan X, kirim paket ke router Y (next-hop)"*.
+
+Format perintah:
+```
+ip route <network tujuan> <subnet mask> <IP next-hop>
+```
+
+Aturan sesuai soal:
+1. **Default route hanya mengarah ke router di atasnya / keluar.** `0.0.0.0 0.0.0.0` berarti "semua tujuan yang tidak dikenal".
+   - R-DC, R-UTARA, R-SELATAN, R-TIMUR, R-BARAT → R-PUSAT
+   - R-PELABUHAN → R-UTARA
+   - R-PUSAT → R-ISP
+2. **R-PUSAT dan R-UTARA wajib memiliki static route ke jaringan di bawahnya (ke dalam).**
+   - R-PUSAT: ke semua LAN milik R-DC, R-UTARA, R-PELABUHAN, R-SELATAN, R-TIMUR, dan R-BARAT.
+   - R-UTARA: ke semua LAN milik R-PELABUHAN.
+3. **R-ISP tidak diberi rute apa pun** ke alamat privat (ketentuan soal 5).
+
+```
+                    R-ISP
+                      ▲ default route
+                   R-PUSAT ── rute ke dalam: 12 LAN + link L6
+     ▲default   ▲default   ▲default   ▲default   ▲default
+     R-DC      R-BARAT    R-UTARA    R-TIMUR   R-SELATAN
+                             │ rute ke dalam: 2 LAN Pelabuhan
+                             ▲ default route
+                         R-PELABUHAN
+```
+
+### 4.2 Mengapa R-PUSAT membutuhkan satu rute per LAN?
+Karena skema yang dipakai adalah **VLSM**, alamat dua LAN milik satu router tidak berdekatan sehingga tidak bisa diringkas menjadi satu rute. Contoh pada R-DC: CCTV Kota `10.96.96.0/19` dan Server dan Storage DC `10.96.239.0/24` berjauhan. Akibatnya R-PUSAT memerlukan **2 rute untuk setiap router bawah** (12 rute LAN), ditambah 1 rute ke link L6 dan 1 default route.
+
+### 4.3 Tabel static route
+
+| Router | Network tujuan | Next-hop | Keterangan |
+|---|---|---|---|
+| R-PUSAT | 10.96.96.0/19 | 10.96.241.34 | LAN CCTV Kota (R-DC) via L1 |
+| R-PUSAT | 10.96.239.0/24 | 10.96.241.34 | LAN Server dan Storage DC (R-DC) via L1 |
+| R-PUSAT | 10.96.0.0/18 | 10.96.241.38 | LAN WiFi Publik Utara (R-UTARA) via L2 |
+| R-PUSAT | 10.96.236.0/23 | 10.96.241.38 | LAN Sensor Lalu Lintas Utara (R-UTARA) via L2 |
+| R-PUSAT | 10.96.240.0/25 | 10.96.241.38 | LAN Kantor Pelabuhan, dititipkan ke R-UTARA |
+| R-PUSAT | 10.96.160.0/19 | 10.96.241.38 | LAN Sensor dan SCADA Pelabuhan, dititipkan ke R-UTARA |
+| R-PUSAT | 10.96.241.52/30 | 10.96.241.38 | Link L6 (R-UTARA – R-PELABUHAN) |
+| R-PUSAT | 10.96.64.0/19 | 10.96.241.42 | LAN WiFi Publik Selatan (R-SELATAN) via L3 |
+| R-PUSAT | 10.96.240.128/25 | 10.96.241.42 | LAN PJU Pintar Selatan (R-SELATAN) via L3 |
+| R-PUSAT | 10.96.128.0/19 | 10.96.241.46 | LAN WiFi Publik Timur (R-TIMUR) via L4 |
+| R-PUSAT | 10.96.232.0/22 | 10.96.241.46 | LAN Sensor Banjir Timur (R-TIMUR) via L4 |
+| R-PUSAT | 10.96.192.0/19 | 10.96.241.50 | LAN WiFi Publik Barat (R-BARAT) via L5 |
+| R-PUSAT | 10.96.238.0/24 | 10.96.241.50 | LAN Puskesmas dan Sekolah Barat (R-BARAT) via L5 |
+| R-PUSAT | 0.0.0.0/0 | 203.0.113.50 | Default route ke R-ISP (internet) |
+| R-UTARA | 10.96.240.0/25 | 10.96.241.54 | LAN Kantor Pelabuhan via L6 |
+| R-UTARA | 10.96.160.0/19 | 10.96.241.54 | LAN Sensor dan SCADA Pelabuhan via L6 |
+| R-UTARA | 0.0.0.0/0 | 10.96.241.37 | Default route ke R-PUSAT |
+| R-PELABUHAN | 0.0.0.0/0 | 10.96.241.53 | Default route ke R-UTARA |
+| R-DC | 0.0.0.0/0 | 10.96.241.33 | Default route ke R-PUSAT |
+| R-SELATAN | 0.0.0.0/0 | 10.96.241.41 | Default route ke R-PUSAT |
+| R-TIMUR | 0.0.0.0/0 | 10.96.241.45 | Default route ke R-PUSAT |
+| R-BARAT | 0.0.0.0/0 | 10.96.241.49 | Default route ke R-PUSAT |
+| R-ISP | — | — | Tidak ada rute ke alamat privat |
+
+Penjelasan khusus:
+- **LAN Pelabuhan di R-PUSAT** diarahkan ke **10.96.241.38 (R-UTARA)**, bukan langsung ke R-PELABUHAN, karena R-PUSAT tidak bertetangga langsung dengan R-PELABUHAN. R-UTARA yang kemudian meneruskan ke R-PELABUHAN.
+- **Rute ke L6 (10.96.241.52/30)** dibutuhkan agar R-PUSAT dapat menjangkau alamat R-PELABUHAN di link L6 (10.96.241.54), yang juga dipakai sebagai tujuan tunnel GRE pada soal 6.
+
+### 4.4 Konfigurasi setiap router
+
+**R-PUSAT**
+```
+enable
+configure terminal
+ip route 10.96.96.0 255.255.224.0 10.96.241.34
+ip route 10.96.239.0 255.255.255.0 10.96.241.34
+ip route 10.96.0.0 255.255.192.0 10.96.241.38
+ip route 10.96.236.0 255.255.254.0 10.96.241.38
+ip route 10.96.240.0 255.255.255.128 10.96.241.38
+ip route 10.96.160.0 255.255.224.0 10.96.241.38
+ip route 10.96.241.52 255.255.255.252 10.96.241.38
+ip route 10.96.64.0 255.255.224.0 10.96.241.42
+ip route 10.96.240.128 255.255.255.128 10.96.241.42
+ip route 10.96.128.0 255.255.224.0 10.96.241.46
+ip route 10.96.232.0 255.255.252.0 10.96.241.46
+ip route 10.96.192.0 255.255.224.0 10.96.241.50
+ip route 10.96.238.0 255.255.255.0 10.96.241.50
+ip route 0.0.0.0 0.0.0.0 203.0.113.50
+end
+write memory
+```
+
+**R-UTARA**
+```
+enable
+configure terminal
+ip route 10.96.240.0 255.255.255.128 10.96.241.54
+ip route 10.96.160.0 255.255.224.0 10.96.241.54
+ip route 0.0.0.0 0.0.0.0 10.96.241.37
+end
+write memory
+```
+
+**R-PELABUHAN**
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 10.96.241.53
+end
+write memory
+```
+
+**R-DC**
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 10.96.241.33
+end
+write memory
+```
+
+**R-SELATAN**
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 10.96.241.41
+end
+write memory
+```
+
+**R-TIMUR**
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 10.96.241.45
+end
+write memory
+```
+
+**R-BARAT**
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 10.96.241.49
+end
+write memory
+```
+
+> Catatan: pada soal 6, dua rute LAN Pelabuhan di R-PUSAT (`10.96.240.0/25` dan `10.96.160.0/19` via 10.96.241.38) diubah menjadi rute cadangan (AD 5) dan ditambah rute utama melalui tunnel. Penjelasannya ada di bagian Tunnel GRE.
+
+### 4.5 Pengujian
+
+**a. Tabel routing**
+
+| Router | Perintah | Hasil yang diharapkan | Bukti |
+|---|---|---|---|
+| R-PUSAT | `show ip route static` | 13 rute `S` ke LAN dan L6, serta `S* 0.0.0.0/0 via 203.0.113.50` | <img width="450" alt="R-PUSAT show ip route static" src="LINK_GAMBAR" /> |
+| R-UTARA | `show ip route static` | 2 rute ke LAN Pelabuhan dan `S* 0.0.0.0/0 via 10.96.241.37` | <img width="450" alt="R-UTARA show ip route static" src="LINK_GAMBAR" /> |
+| R-DC | `show ip route static` | `S* 0.0.0.0/0 via 10.96.241.33` | <img width="450" alt="R-DC show ip route static" src="LINK_GAMBAR" /> |
+
+**b. Komunikasi antar LAN beda wilayah**
+
+| Dari | Ke | Jalur yang dilewati | Bukti |
+|---|---|---|---|
+| PC di wilayah lain | PC-PEGAWAI-BALAIKOTA (10.96.224.2) | → R-PUSAT → LAN Pegawai | <img width="450" alt="ping PC Pegawai" src="LINK_GAMBAR" /> |
+| PC di wilayah lain | PC-CCTV-KOTA (10.96.96.2) | → R-PUSAT → R-DC → LAN CCTV | <img width="450" alt="ping PC CCTV" src="LINK_GAMBAR" /> |
+| PC-KANTOR-PELABUHAN | SRV-DC (10.96.239.10) | R-PELABUHAN → R-UTARA → R-PUSAT → R-DC | <img width="450" alt="ping Pelabuhan ke DC" src="LINK_GAMBAR" /> |
+| PC-SENSOR-BANJIR-TIMUR | SRV-DC (10.96.239.10) | R-TIMUR → R-PUSAT → R-DC | <img width="450" alt="ping Timur ke DC" src="LINK_GAMBAR" /> |
+
+**c. Jalur paket**
+
+| Dari | Perintah | Hasil | Bukti |
+|---|---|---|---|
+| R-PELABUHAN | `traceroute 10.96.224.1` | 10.96.241.53 (R-UTARA) → 10.96.241.37 (R-PUSAT): paket naik lewat default route sesuai hierarki | <img width="450" alt="traceroute R-PELABUHAN" src="LINK_GAMBAR" /> |
+
+Seluruh LAN dapat saling berkomunikasi hanya dengan static route dan default route, sesuai ketentuan soal 3.
+
