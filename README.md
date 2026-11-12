@@ -354,7 +354,7 @@ Setiap link diuji dengan ping dari router atas ke IP router bawah:
 | R-PUSAT | `ping 10.96.241.42` | R-SELATAN Serial0/0/0 | L3 | <img width="481" height="90" alt="image" src="https://github.com/user-attachments/assets/8655279e-2adf-469a-8f79-e0b8cdca6416" />|
 | R-PUSAT | `ping 10.96.241.46` | R-TIMUR Serial0/0/0 | L4 | <img width="481" height="90" alt="image" src="https://github.com/user-attachments/assets/cbc84383-01be-4499-842d-7ca5018583d3" />|
 | R-PUSAT | `ping 10.96.241.50` | R-BARAT Serial0/0/0 | L5 | <img width="481" height="90" alt="image" src="https://github.com/user-attachments/assets/8bf3a479-1b4e-46c3-8e05-243aef8c9714" />|
-| R-PUSAT | `ping 203.0.113.50` | R-ISP GigabitEthernet0/0 | ISP | <img width="359" height="66" alt="image" src="https://github.com/user-attachments/assets/5fe4d095-4be0-4808-abfd-b15c5aace5a4" />|
+| R-PUSAT | `ping 203.0.113.50` | R-ISP GigabitEthernet0/0 | ISP | <img width="718" height="132" alt="image" src="https://github.com/user-attachments/assets/7ffdcfe6-73fe-48d8-9a8b-e5fb7e78f089" />|
 | R-UTARA | `ping 10.96.241.54` | R-PELABUHAN Serial0/0/0 | L6 | <img width="898" height="165" alt="image" src="https://github.com/user-attachments/assets/93c4e453-10bf-44e1-9d6a-a3cf19d3ce24" />|
 
 > Link R-PUSAT ↔ R-ISP memakai 203.0.113.48/30 (R-PUSAT .49, R-ISP .50) sebagai IP publik simulasi. Blok 203.0.113.0/24 adalah alamat khusus dokumentasi (RFC 5737), sehingga tidak bentrok dengan alamat internet sungguhan dan tidak termasuk tabel subnetting VLSM kelompok.
