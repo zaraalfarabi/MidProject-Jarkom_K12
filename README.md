@@ -514,24 +514,24 @@ write memory
 
 | Router | Perintah | Hasil yang diharapkan | Bukti |
 |---|---|---|---|
-| R-PUSAT | `show ip route static` | 13 rute `S` ke LAN dan L6, serta `S* 0.0.0.0/0 via 203.0.113.50` | <img width="450" alt="R-PUSAT show ip route static" src="LINK_GAMBAR" /> |
-| R-UTARA | `show ip route static` | 2 rute ke LAN Pelabuhan dan `S* 0.0.0.0/0 via 10.96.241.37` | <img width="450" alt="R-UTARA show ip route static" src="LINK_GAMBAR" /> |
-| R-DC | `show ip route static` | `S* 0.0.0.0/0 via 10.96.241.33` | <img width="450" alt="R-DC show ip route static" src="LINK_GAMBAR" /> |
+| R-PUSAT | `show ip route static` | 13 rute `S` ke LAN dan L6, serta `S* 0.0.0.0/0 via 203.0.113.50` | <img width="439" height="234" alt="image" src="https://github.com/user-attachments/assets/ba3ef229-74cd-4679-afdf-ea2081947ee3" />|
+| R-UTARA | `show ip route static` | 2 rute ke LAN Pelabuhan dan `S* 0.0.0.0/0 via 10.96.241.37` | <img width="429" height="91" alt="image" src="https://github.com/user-attachments/assets/9cbc8e28-8e85-44ad-bf76-675d9a3f14d8" />|
+| R-DC | `show ip route static` | `S* 0.0.0.0/0 via 10.96.241.33` | <img width="272" height="51" alt="image" src="https://github.com/user-attachments/assets/68664410-93ff-4d23-84d4-37cfce3dc8a2" />|
 
 **b. Komunikasi antar LAN beda wilayah**
 
 | Dari | Ke | Jalur yang dilewati | Bukti |
 |---|---|---|---|
-| PC di wilayah lain | PC-PEGAWAI-BALAIKOTA (10.96.224.2) | → R-PUSAT → LAN Pegawai | <img width="450" alt="ping PC Pegawai" src="LINK_GAMBAR" /> |
-| PC di wilayah lain | PC-CCTV-KOTA (10.96.96.2) | → R-PUSAT → R-DC → LAN CCTV | <img width="450" alt="ping PC CCTV" src="LINK_GAMBAR" /> |
-| PC-KANTOR-PELABUHAN | SRV-DC (10.96.239.10) | R-PELABUHAN → R-UTARA → R-PUSAT → R-DC | <img width="450" alt="ping Pelabuhan ke DC" src="LINK_GAMBAR" /> |
-| PC-SENSOR-BANJIR-TIMUR | SRV-DC (10.96.239.10) | R-TIMUR → R-PUSAT → R-DC | <img width="450" alt="ping Timur ke DC" src="LINK_GAMBAR" /> |
+| PC di wilayah lain | PC-PEGAWAI-BALAIKOTA (10.96.224.2) | → R-PUSAT → LAN Pegawai | <img width="441" height="213" alt="image" src="https://github.com/user-attachments/assets/96d80dda-625d-43c6-9fce-f0debff43dcd" />|
+| PC di wilayah lain | PC-CCTV-KOTA (10.96.96.2) | → R-PUSAT → R-DC → LAN CCTV | <img width="387" height="209" alt="image" src="https://github.com/user-attachments/assets/47070029-51c2-42a9-bb47-2962a49396d5" />|
+| PC-KANTOR-PELABUHAN | SRV-DC (10.96.239.10) | R-PELABUHAN → R-UTARA → R-PUSAT → R-DC | <img width="757" height="493" alt="image" src="https://github.com/user-attachments/assets/c1666422-7623-4660-ab24-74ddb6c40906" />|
+| PC-SENSOR-BANJIR-TIMUR | SRV-DC (10.96.239.10) | R-TIMUR → R-PUSAT → R-DC | <img width="783" height="472" alt="image" src="https://github.com/user-attachments/assets/3a046bed-214f-4c76-97e9-c6cbf078764d" />|
 
 **c. Jalur paket**
 
 | Dari | Perintah | Hasil | Bukti |
 |---|---|---|---|
-| R-PELABUHAN | `traceroute 10.96.224.1` | 10.96.241.53 (R-UTARA) → 10.96.241.37 (R-PUSAT): paket naik lewat default route sesuai hierarki | <img width="450" alt="traceroute R-PELABUHAN" src="LINK_GAMBAR" /> |
+| R-PELABUHAN | `traceroute 10.96.224.1` | 10.96.241.53 (R-UTARA) → 10.96.241.37 (R-PUSAT): paket naik lewat default route sesuai hierarki | <img width="344" height="90" alt="image" src="https://github.com/user-attachments/assets/c20bfabc-6bbb-4485-bf52-982d6c912591" />|
 
 Seluruh LAN dapat saling berkomunikasi hanya dengan static route dan default route, sesuai ketentuan soal 3.
 
