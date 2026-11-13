@@ -9,7 +9,7 @@
 | Rheza Pramudita Adi Putra | 5027251090|
 
 ## 1. Topologi 
-![alt text](image.png)
+<img width="1384" height="633" alt="image" src="https://github.com/user-attachments/assets/5a41b99d-2e52-4e7d-ac44-2e41dc9a16c8" />
 
 ### 1.1 Backbone
 Hubungan antar-router mengikuti Gambar 1 pada soal:
@@ -699,3 +699,77 @@ Karena R-ISP hanya pernah melihat alamat 203.0.113.49, R-ISP tidak memerlukan ru
 | `show ip route` di R-ISP | Hanya rute connected 203.0.113.48/30 dan 8.8.8.0/24, **tidak ada rute ke 10.96.0.0/16** |<img width="882" height="352" alt="image" src="https://github.com/user-attachments/assets/bab2529e-cacd-4fd0-b55b-81045c54e70f" />|
 
 Seluruh host dapat mengakses 8.8.8.8 menggunakan satu IP publik R-PUSAT (203.0.113.49), dan R-ISP tidak memiliki rute ke alamat privat, sesuai ketentuan soal 5.
+
+## 7. Tunnel GRE 
+
+**GRE** (*Generic Routing Encapsulation*) adalah protokol yang membungkus (*enkapsulasi*) sebuah paket IP ke dalam paket IP baru, sehingga dua router dapat terhubung seolah-olah langsung bertetangga melalui **tunnel**, meskipun secara fisik paket tetap melewati router lain.
+
+| Istilah | Penjelasan |
+|---|---|
+| **Tunnel interface** | Interface virtual (Tunnel0) yang menjadi ujung tunnel di setiap router. |
+| **Tunnel source** | Interface fisik/alamat asal paket GRE (R-PUSAT Serial0/0/1, R-PELABUHAN Serial0/0/0). |
+| **Tunnel destination** | Alamat router di ujung lain tunnel. |
+| **Enkapsulasi** | Paket asli diberi header GRE dan header IP baru sebelum dikirim melalui jalur fisik. |
+
+Tunnel dibangun antara **R-PUSAT** dan **R-PELABUHAN** dengan alamat 10.96.241.60/30 (sesuai tabel VLSM). Secara fisik paket tetap melewati R-PUSAT → L2 → R-UTARA → L6 → R-PELABUHAN, tetapi R-UTARA hanya melihat paket GRE antara 10.96.241.37 dan 10.96.241.54, bukan alamat asli Balai Kota atau Pelabuhan.
+
+### 7.1 Konfigurasi
+
+**R-PUSAT**
+```
+interface Tunnel0
+ ip address 10.96.241.61 255.255.255.252
+ tunnel source Serial0/0/1
+ tunnel destination 10.96.241.54
+ tunnel mode gre ip
+exit
+ip route 10.96.160.0 255.255.224.0 10.96.241.62
+ip route 10.96.240.0 255.255.255.128 10.96.241.62
+ip route 10.96.160.0 255.255.224.0 10.96.241.38 5
+ip route 10.96.240.0 255.255.255.128 10.96.241.38 5
+```
+
+**R-PELABUHAN**
+```
+interface Tunnel0
+ ip address 10.96.241.62 255.255.255.252
+ tunnel source Serial0/0/0
+ tunnel destination 10.96.241.37
+ tunnel mode gre ip
+exit
+ip route 10.96.224.0 255.255.248.0 10.96.241.61
+ip route 10.96.241.0 255.255.255.224 10.96.241.61
+```
+
+| Router | Tujuan | Next-hop | AD | Keterangan |
+|---|---|---|---|---|
+| R-PUSAT | 10.96.160.0/19 (SCADA Pelabuhan) | 10.96.241.62 | 1 | Rute utama lewat tunnel |
+| R-PUSAT | 10.96.240.0/25 (Kantor Pelabuhan) | 10.96.241.62 | 1 | Rute utama lewat tunnel |
+| R-PUSAT | 10.96.160.0/19 dan 10.96.240.0/25 | 10.96.241.38 | 5 | Rute cadangan lewat R-UTARA (*floating static route*) |
+| R-PELABUHAN | 10.96.224.0/21 (Pegawai Balai Kota) | 10.96.241.61 | 1 | Lewat tunnel |
+| R-PELABUHAN | 10.96.241.0/27 (Server Balai Kota) | 10.96.241.61 | 1 | Lewat tunnel |
+
+### 7.2 Mengapa router memilih jalur tunnel?
+
+- **Di R-PUSAT** terdapat dua rute dengan prefix yang **sama persis** menuju LAN Pelabuhan: melalui tunnel (AD 1) dan melalui R-UTARA (AD 5). Jika prefix sama, router memilih rute dengan **Administrative Distance (AD) terkecil**, sehingga rute tunnel yang dipasang di tabel routing. Rute AD 5 hanya aktif bila tunnel mati.
+- **Di R-PELABUHAN** rute ke LAN Balai Kota (/21 dan /27) **lebih spesifik** daripada default route 0.0.0.0/0 ke R-UTARA. Router selalu memilih prefix terpanjang (**longest prefix match**), sehingga balasan juga masuk tunnel.
+- Rute tunnel hanya mencakup LAN Balai Kota dan LAN Pelabuhan. Lalu lintas Pelabuhan ke wilayah lain tetap memakai default route biasa.
+- Alamat tujuan tunnel (10.96.241.54 dan 10.96.241.37) tidak termasuk rute tunnel, sehingga tidak terjadi *recursive routing* (tunnel mencoba merutekan dirinya sendiri lewat dirinya sendiri).
+
+### 7.3 Mengapa GRE saja tidak mengenkripsi data?
+
+GRE hanya protokol **enkapsulasi**: ia menambahkan header GRE (4 byte) dan header IP baru (20 byte) agar paket dapat dikirim melalui tunnel. GRE **tidak memiliki mekanisme enkripsi, autentikasi, maupun pemeriksaan integritas**, sehingga isi paket asli (alamat IP dan data) tetap dapat dibaca oleh siapa pun yang menyadap jalur di antaranya, misalnya di R-UTARA. Untuk mengamankan isi tunnel diperlukan protokol tambahan seperti **IPsec**.
+
+### 7.4 Bukti pengujian
+
+| No | Pengujian | Hasil | Bukti |
+|---|---|---|---|
+| 1 | `show interface Tunnel0` di R-PUSAT | Tunnel0 is up, line protocol is up; IP 10.96.241.61/30; source 10.96.241.37 (Serial0/0/1), destination 10.96.241.54; GRE/IP | <img width="751" height="463" alt="image" src="https://github.com/user-attachments/assets/8b766beb-a9d1-438e-9e11-bb6cb16c4ab6" />|
+| 2 | `show ip route 10.96.224.0` dan `ping 10.96.241.61` di R-PELABUHAN | Rute ke LAN Pegawai Balai Kota via 10.96.241.61 (tunnel, distance 1); ping ke ujung tunnel 5/5 berhasil | <img width="838" height="259" alt="image" src="https://github.com/user-attachments/assets/a40ac2c0-f647-4331-999c-2736111a2f98" />|
+| 3 | `tracert 10.96.240.2` dari PC-PEGAWAI-BALAIKOTA | 10.96.224.1 → **10.96.241.62** → 10.96.240.2 | <img width="612" height="186" alt="image" src="https://github.com/user-attachments/assets/b497c5d2-8ba7-4f43-a87e-3933b8b008f4" />|
+| 4 | `tracert 10.96.224.2` dari PC-KANTOR-PELABUHAN | 10.96.240.1 → **10.96.241.61** → 10.96.224.2 | <img width="603" height="184" alt="image" src="https://github.com/user-attachments/assets/16421794-b31f-4df1-be87-1d9bbcc2248d" />|
+| 5 | `tracert 10.96.239.10` dari PC-KANTOR-PELABUHAN (pembanding) | 10.96.240.1 → 10.96.241.53 → 10.96.241.37 → 10.96.241.34 → 10.96.239.10 | <img width="646" height="181" alt="image" src="https://github.com/user-attachments/assets/a1b1b505-eb5d-45b9-8555-da16e2fe797c" />|
+
+**Analisis:** Pada pengujian 3 dan 4, hop kedua adalah alamat Tunnel0 (10.96.241.62 dan 10.96.241.61), dan tracert hanya menampilkan 3 hop. Padahal jalur fisiknya melewati R-UTARA (4 hop). R-UTARA tidak terlihat karena hanya meneruskan paket GRE 10.96.241.37 ↔ 10.96.241.54 tanpa memproses paket aslinya, sehingga R-PUSAT dan R-PELABUHAN tampak bertetangga langsung. Sebaliknya, pada pengujian 5 R-UTARA (10.96.241.53) muncul karena lalu lintas Pelabuhan ke Data Center tidak termasuk rute tunnel.
+
+Hop kedua pada pengujian 3 dan 4 adalah alamat tunnel, membuktikan lalu lintas Balai Kota ↔ Pelabuhan melewati tunnel GRE. Lalu lintas Pelabuhan ke wilayah lain (pengujian 5) tetap melalui jalur fisik R-UTARA.
