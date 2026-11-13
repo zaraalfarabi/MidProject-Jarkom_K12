@@ -535,3 +535,90 @@ write memory
 
 Seluruh LAN dapat saling berkomunikasi hanya dengan static route dan default route, sesuai ketentuan soal 3.
 
+
+## 5. DHCP
+
+**DHCP** (*Dynamic Host Configuration Protocol*) adalah protokol yang membagikan konfigurasi jaringan secara otomatis kepada perangkat, yaitu alamat IP, subnet mask, default gateway, dan DNS server. Dengan DHCP, pengguna tidak perlu mengisi IP secara manual, dan risiko alamat ganda dapat dihindari.
+
+Proses DHCP terdiri dari empat tahap (**DORA**):
+1. **Discover** – perangkat mengirim broadcast untuk mencari server DHCP.
+2. **Offer** – server DHCP menawarkan sebuah alamat IP.
+3. **Request** – perangkat meminta alamat yang ditawarkan.
+4. **Acknowledge** – server mengonfirmasi, dan perangkat mulai memakai alamat tersebut.
+
+| Istilah | Penjelasan |
+|---|---|
+| **IP statis** | Alamat yang diisi manual dan tidak berubah; dipakai interface router dan server agar alamatnya selalu tetap. |
+| **IP dinamis** | Alamat yang didapat otomatis dari server DHCP; dipakai perangkat pengguna. |
+| **DHCP pool** | Kumpulan alamat yang boleh dibagikan untuk satu LAN, beserta gateway dan DNS-nya. |
+| **Excluded address** | Alamat di dalam pool yang dilarang dibagikan, misalnya alamat gateway, agar tidak bentrok dengan IP statis. |
+| **DHCP relay** (`ip helper-address`) | Fitur router untuk meneruskan permintaan DHCP (broadcast) ke server DHCP yang berada di jaringan lain, karena broadcast tidak bisa melewati router. |
+
+Penerapan sesuai ketentuan soal:
+- **IP statis:** semua interface router dan server (SRV-DC 10.96.239.10, SRV-BALAIKOTA 10.96.241.10, SRV-INTERNET 8.8.8.8).
+- **IP dinamis:** semua perangkat pengguna mendapat IP, gateway, dan DNS **10.96.239.10** dari router lokalnya.
+- **Tidak bentrok:** alamat gateway dikeluarkan dari pool dengan `ip dhcp excluded-address`, dan kedua LAN server tidak memiliki pool DHCP.
+- **CCTV Kota:** dilayani **SRV-DC**, bukan router, melalui DHCP relay (`ip helper-address`) di R-DC.
+
+### 5.1 Pool DHCP
+
+| Router | Pool | Network | Gateway |
+|---|---|---|---|
+| R-PUSAT | PEGAWAI-BALAIKOTA | 10.96.224.0/21 | 10.96.224.1 |
+| R-UTARA | WIFI-UTARA | 10.96.0.0/18 | 10.96.0.1 |
+| R-UTARA | SENSOR-LALIN-UTARA | 10.96.236.0/23 | 10.96.236.1 |
+| R-PELABUHAN | KANTOR-PELABUHAN | 10.96.240.0/25 | 10.96.240.1 |
+| R-PELABUHAN | SCADA-PELABUHAN | 10.96.160.0/19 | 10.96.160.1 |
+| R-SELATAN | WIFI-SELATAN | 10.96.64.0/19 | 10.96.64.1 |
+| R-SELATAN | PJU-SELATAN | 10.96.240.128/25 | 10.96.240.129 |
+| R-TIMUR | WIFI-TIMUR | 10.96.128.0/19 | 10.96.128.1 |
+| R-TIMUR | SENSOR-BANJIR-TIMUR | 10.96.232.0/22 | 10.96.232.1 |
+| R-BARAT | WIFI-BARAT | 10.96.192.0/19 | 10.96.192.1 |
+| R-BARAT | PUSKESMAS-SEKOLAH-BARAT | 10.96.238.0/24 | 10.96.238.1 |
+| **SRV-DC** | **CCTV-KOTA** | 10.96.96.0/19 (start .2, 6000 user) | 10.96.96.1 |
+
+Semua pool memakai DNS server 10.96.239.10.
+
+### 5.2 Konfigurasi
+
+Contoh router (R-UTARA). Router lain sama polanya, sesuai tabel di atas:
+```
+ip dhcp excluded-address 10.96.0.1
+ip dhcp excluded-address 10.96.236.1
+ip dhcp pool WIFI-UTARA
+ network 10.96.0.0 255.255.192.0
+ default-router 10.96.0.1
+ dns-server 10.96.239.10
+ip dhcp pool SENSOR-LALIN-UTARA
+ network 10.96.236.0 255.255.254.0
+ default-router 10.96.236.1
+ dns-server 10.96.239.10
+```
+
+DHCP relay untuk CCTV Kota di R-DC:
+```
+interface GigabitEthernet0/0
+ ip helper-address 10.96.239.10
+```
+Permintaan DHCP dari PC-CCTV berupa broadcast yang tidak bisa menyeberang router. `ip helper-address` membuat R-DC meneruskannya ke SRV-DC, lalu SRV-DC memilih pool CCTV-KOTA berdasarkan gateway asal (10.96.96.1).
+
+### 5.3 Bukti pengujian
+
+Pengujian dilakukan pada lima perangkat perwakilan yang mencakup perangkat kabel dan wireless, DHCP dari router, serta DHCP dari SRV-DC. Setiap perangkat diuji dengan `ipconfig` (mendapat IP dari DHCP) dan `ping` ke gateway serta SRV-DC (10.96.239.10).
+
+| No | Perangkat | Jenis | Sumber DHCP | IP dari DHCP | Gateway | Bukti |
+|---|---|---|---|---|---|---|
+| 1 | PC-PEGAWAI-BALAIKOTA | Kabel | R-PUSAT (10.96.224.1) | 10.96.224.2/21 | 10.96.224.1 | <img width="350" alt="DHCP PC Pegawai" src="https://github.com/user-attachments/assets/8a7ed7b3-862d-49f0-9224-3d5f3e5433db" /> |
+| 2 | PC-CCTV-KOTA | Kabel | **SRV-DC (10.96.239.10)** | 10.96.96.2/19 | 10.96.96.1 | <img width="350" alt="DHCP PC CCTV" src="https://github.com/user-attachments/assets/e8fe676a-36fd-40c2-84fc-7ed9545544f5" /> |
+| 3 | LAPTOP-WIFI-UTARA | Wireless | R-UTARA (10.96.0.1) | 10.96.0.2/18 | 10.96.0.1 | <img width="350" alt="DHCP Laptop WiFi Utara" src="https://github.com/user-attachments/assets/31e4ea67-477b-464c-91ca-0cea5d52e006" /> |
+| 4 | SP-WIFI-SELATAN | Wireless | R-SELATAN (10.96.64.1) | 10.96.64.2/19 | 10.96.64.1 | <img width="350" alt="DHCP SP WiFi Selatan" src="https://github.com/user-attachments/assets/0926dd22-bb9e-471f-85d1-200a85840c03" /> |
+| 5 | PC-KANTOR-PELABUHAN | Kabel | R-PELABUHAN (10.96.240.1) | 10.96.240.2/25 | 10.96.240.1 | <img width="350" alt="DHCP PC Kantor Pelabuhan" src="https://github.com/user-attachments/assets/10a646aa-97e7-4696-a9c5-1a33f38163bf" /> |
+
+Bukti CCTV mendapat IP dari SRV-DC (bukan router):
+
+| Pengujian | Hasil | Bukti |
+|---|---|---|
+| Pool CCTV-KOTA di SRV-DC | start 10.96.96.2, gateway 10.96.96.1, DNS 10.96.239.10, 6000 user | <img width="2048" height="704" alt="image" src="https://github.com/user-attachments/assets/cffdfb3c-4da7-41b9-918d-9acbe71abd39" />|
+| `ipconfig /all` PC-CCTV-KOTA | DHCP Servers: **10.96.239.10** | <img width="585" height="469" alt="image" src="https://github.com/user-attachments/assets/31b8cbac-eafc-4fe2-bc79-85b7e9a85b5a" />
+ |
+
