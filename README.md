@@ -619,6 +619,83 @@ Bukti CCTV mendapat IP dari SRV-DC (bukan router):
 | Pengujian | Hasil | Bukti |
 |---|---|---|
 | Pool CCTV-KOTA di SRV-DC | start 10.96.96.2, gateway 10.96.96.1, DNS 10.96.239.10, 6000 user | <img width="2048" height="704" alt="image" src="https://github.com/user-attachments/assets/cffdfb3c-4da7-41b9-918d-9acbe71abd39" />|
-| `ipconfig /all` PC-CCTV-KOTA | DHCP Servers: **10.96.239.10** | <img width="585" height="469" alt="image" src="https://github.com/user-attachments/assets/31b8cbac-eafc-4fe2-bc79-85b7e9a85b5a" />
- |
+| `ipconfig /all` PC-CCTV-KOTA | DHCP Servers: **10.96.239.10** | <img width="585" height="469" alt="image" src="https://github.com/user-attachments/assets/31b8cbac-eafc-4fe2-bc79-85b7e9a85b5a" />|
 
+## 6. NAT 
+
+**NAT** (*Network Address Translation*) adalah proses mengganti alamat IP sumber pada paket saat melewati router. Alamat privat 10.96.x.x tidak dapat dirutekan di internet, sehingga sebelum keluar ke R-ISP alamat tersebut diterjemahkan menjadi alamat publik milik R-PUSAT.
+
+| Istilah | Penjelasan |
+|---|---|
+| **Inside** | Sisi jaringan internal (alamat privat). Di R-PUSAT: semua interface LAN dan backbone. |
+| **Outside** | Sisi jaringan luar (internet). Di R-PUSAT: Gi0/0 yang menuju R-ISP. |
+| **PAT / NAT overload** | Banyak host privat memakai **satu** IP publik yang sama, dibedakan melalui nomor port. |
+| **ACL (access-list)** | Daftar alamat yang boleh diterjemahkan oleh NAT. |
+
+Penerapan sesuai ketentuan soal:
+- **Seluruh host** (10.96.0.0/16) dapat mengakses server 8.8.8.8.
+- Semua host keluar memakai **satu IP publik milik R-PUSAT**: **203.0.113.49** (Gi0/0).
+- **R-ISP tidak memiliki rute ke alamat privat**. R-ISP hanya mengenal jaringan yang terhubung langsung: 203.0.113.48/30 dan 8.8.8.0/24.
+
+### 6.1 Konfigurasi di R-PUSAT
+```
+enable
+configure terminal
+access-list 1 permit 10.96.0.0 0.0.255.255
+ip nat inside source list 1 interface GigabitEthernet0/0 overload
+interface GigabitEthernet0/0
+ ip nat outside
+interface GigabitEthernet0/1
+ ip nat inside
+interface GigabitEthernet0/2
+ ip nat inside
+interface Serial0/0/0
+ ip nat inside
+interface Serial0/0/1
+ ip nat inside
+interface Serial0/1/0
+ ip nat inside
+interface Serial0/1/1
+ ip nat inside
+interface Serial0/2/0
+ ip nat inside
+end
+write memory
+```
+
+| Perintah | Fungsi |
+|---|---|
+| `access-list 1 permit 10.96.0.0 0.0.255.255` | Menentukan alamat yang diterjemahkan: seluruh blok kelompok 10.96.0.0/16 (wildcard 0.0.255.255 = kebalikan dari /16) |
+| `ip nat inside source list 1 interface Gi0/0 overload` | Alamat yang cocok dengan ACL 1 diterjemahkan ke IP interface Gi0/0 (203.0.113.49), dipakai bersama (*overload*) |
+| `ip nat outside` | Menandai Gi0/0 sebagai sisi internet |
+| `ip nat inside` | Menandai interface LAN dan backbone sebagai sisi internal |
+
+R-ISP tidak diberi static route sama sekali. Default route R-PUSAT (`ip route 0.0.0.0 0.0.0.0 203.0.113.50`) mengarahkan semua lalu lintas internet ke R-ISP.
+
+### 6.2 Cara kerja
+1. PC-PEGAWAI-BALAIKOTA (10.96.224.2) melakukan ping ke 8.8.8.8.
+2. Paket sampai di R-PUSAT, lalu keluar lewat Gi0/0. NAT mengganti alamat sumber **10.96.224.2 → 203.0.113.49**.
+3. R-ISP meneruskan paket ke SRV-INTERNET (8.8.8.8). Balasannya ditujukan ke **203.0.113.49**, alamat yang dikenal R-ISP karena terhubung langsung.
+4. R-PUSAT mencocokkan balasan dengan tabel translasi NAT, lalu mengembalikan alamat tujuan **203.0.113.49 → 10.96.224.2**.
+
+Karena R-ISP hanya pernah melihat alamat 203.0.113.49, R-ISP tidak memerlukan rute ke alamat privat 10.96.x.x.
+
+### 6.3 Bukti pengujian
+
+**a. Akses ke 8.8.8.8 dari berbagai wilayah**
+
+| No | Perangkat | Wilayah | Perintah | Bukti |
+|---|---|---|---|---|
+| 1 | PC-PEGAWAI-BALAIKOTA | Balai Kota (R-PUSAT) | `ping 8.8.8.8` | <img width="760" height="261" alt="image" src="https://github.com/user-attachments/assets/666cd8e2-1547-4491-a898-f4c6f8cd6ff2" />|
+| 2 | PC-CCTV-KOTA | DC (R-DC) | `ping 8.8.8.8` | <img width="822" height="289" alt="image" src="https://github.com/user-attachments/assets/17e003c7-c3d7-4411-a4e1-9f500dfedb8a" />|
+| 3 | LAPTOP-WIFI-UTARA | Utara (R-UTARA) | `ping 8.8.8.8` | <img width="703" height="262" alt="image" src="https://github.com/user-attachments/assets/1da4986e-1afa-49ee-b0b9-93e042692caf" />|
+| 4 | SP-WIFI-SELATAN | Selatan (R-SELATAN) | `ping 8.8.8.8` | <img width="727" height="277" alt="image" src="https://github.com/user-attachments/assets/088bc009-60d4-4c52-b4d9-dc203b079816" />|
+
+**b. Translasi NAT dan tabel routing R-ISP**
+
+| Pengujian | Hasil | Bukti |
+|---|---|---|
+| `show ip nat translations` di R-PUSAT | Alamat privat dari blok 10.96.0.0/16 (inside local) diterjemahkan ke satu alamat publik **203.0.113.49** (inside global) | <img width="350" alt="NAT translations R-PUSAT" src="https://github.com/user-attachments/assets/e035aa69-d8fa-4e93-bcfc-c58ed0a63645" /> |
+| `show ip route` di R-ISP | Hanya rute connected 203.0.113.48/30 dan 8.8.8.0/24, **tidak ada rute ke 10.96.0.0/16** |<img width="882" height="352" alt="image" src="https://github.com/user-attachments/assets/bab2529e-cacd-4fd0-b55b-81045c54e70f" />|
+
+Seluruh host dapat mengakses 8.8.8.8 menggunakan satu IP publik R-PUSAT (203.0.113.49), dan R-ISP tidak memiliki rute ke alamat privat, sesuai ketentuan soal 5.
