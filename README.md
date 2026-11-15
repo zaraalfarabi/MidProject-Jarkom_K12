@@ -773,3 +773,199 @@ GRE hanya protokol **enkapsulasi**: ia menambahkan header GRE (4 byte) dan heade
 **Analisis:** Pada pengujian 3 dan 4, hop kedua adalah alamat Tunnel0 (10.96.241.62 dan 10.96.241.61), dan tracert hanya menampilkan 3 hop. Padahal jalur fisiknya melewati R-UTARA (4 hop). R-UTARA tidak terlihat karena hanya meneruskan paket GRE 10.96.241.37 ↔ 10.96.241.54 tanpa memproses paket aslinya, sehingga R-PUSAT dan R-PELABUHAN tampak bertetangga langsung. Sebaliknya, pada pengujian 5 R-UTARA (10.96.241.53) muncul karena lalu lintas Pelabuhan ke Data Center tidak termasuk rute tunnel.
 
 Hop kedua pada pengujian 3 dan 4 adalah alamat tunnel, membuktikan lalu lintas Balai Kota ↔ Pelabuhan melewati tunnel GRE. Lalu lintas Pelabuhan ke wilayah lain (pengujian 5) tetap melalui jalur fisik R-UTARA.
+
+## 8. Dynamic Routing OSPF dan Failover
+
+**OSPF** (*Open Shortest Path First*) adalah protokol *dynamic routing* yang membuat router saling bertukar informasi jaringan dan memilih jalur berdasarkan *cost*. Dengan OSPF, ketika sebuah link terputus, router dapat menghitung ulang rute dan menggunakan jalur lain yang masih tersedia.
+
+Pada topologi K-12, jalur utama menuju Server Data Center adalah **R-PUSAT → R-DC**. Untuk cadangan, ditambahkan link **L7 antara R-UTARA dan R-DC**, sehingga tersedia jalur **R-PUSAT → R-UTARA → R-DC**.
+
+| Jalur | Router dan interface | Alamat IP | Keterangan |
+|---|---|---|---|
+| Utama | R-PUSAT Serial0/0/0 → R-DC Serial0/0/0 | 10.96.241.33 → 10.96.241.34 | Jalur langsung menuju DC |
+| Backup bagian 1 | R-PUSAT Serial0/0/1 → R-UTARA Serial0/0/0 | 10.96.241.37 → 10.96.241.38 | Lewat R-UTARA |
+| Backup bagian 2 (L7) | R-UTARA Serial0/1/0 → R-DC Serial0/0/1 | 10.96.241.58 → 10.96.241.57 | Link cadangan /30 |
+
+### 8.1 Konfigurasi OSPF
+
+Routing dinamis menggunakan **OSPF process 12, area 0**. Salah satu konfigurasi pada **R-PUSAT**:
+
+```cisco
+router ospf 12
+ network 10.96.0.0 0.0.255.255 area 0
+```
+
+Untuk memeriksa hasilnya digunakan:
+
+```cisco
+show ip ospf neighbor
+show ip route ospf
+show ip route 10.96.239.0
+```
+
+Pada file pengujian OSPF, rute statis menuju `10.96.239.0/24` yang sebelumnya lebih diprioritaskan sudah dihapus. Dengan begitu, rute menuju Server DC dapat dipilih melalui OSPF. Perubahan tersebut dilakukan **sebelum** simulasi pemutusan link, bukan pada saat failover berlangsung.
+
+### 8.2 Kondisi sebelum failover
+
+Pada R-PUSAT ditemukan **5 OSPF neighbor dengan status FULL**, yaitu tetangga melalui R-DC, R-UTARA, R-SELATAN, R-TIMUR, dan R-BARAT. Status FULL menandakan adjacency OSPF sudah terbentuk.
+
+Rute menuju jaringan Server DC (`10.96.239.0/24`) dipelajari dari **OSPF 12**, dengan *cost* **65** dan *next-hop* **10.96.241.34** melalui `Serial0/0/0` (jalur langsung ke R-DC).
+
+<img width="750" alt="OSPF neighbor FULL dan routing awal di R-PUSAT" src="assets/01_R_PUSAT_OSPF_NEIGHBOR_FULL_ROUTE_UTAMA.png" />
+
+Pengujian `tracert 10.96.239.10` dari PC-PEGAWAI-BALAIKOTA menunjukkan jalur normal:
+
+```text
+10.96.224.1  →  10.96.241.34  →  10.96.239.10
+R-PUSAT         R-DC               SRV-DC
+```
+
+<img width="650" alt="Traceroute menuju Server DC sebelum failover" src="assets/03_PC_PEGAWAI_OSPF_TRACERT_JALUR_UTAMA_SEBELUM_FAILOVER.png" />
+
+### 8.3 Pengujian failover otomatis
+
+Dari PC Pegawai Balai Kota dijalankan *continuous ping*:
+
+```cmd
+ping -t 10.96.239.10
+```
+
+Kemudian link utama dimatikan dari **R-PUSAT**:
+
+```cisco
+configure terminal
+interface Serial0/0/0
+ shutdown
+end
+```
+
+Ketika link terputus, ping sempat mengalami **Request timed out**, lalu kembali mendapat balasan. Pada salah satu percobaan terdapat **147 paket dikirim, 146 diterima, dan 1 hilang**. Nilai TTL juga berubah dari **126 menjadi 125**, sesuai bertambahnya jumlah router yang dilewati.
+
+<img width="650" alt="Continuous ping saat failover OSPF" src="assets/04_PC_PEGAWAI_OSPF_CONTINUOUS_PING_FAILOVER_TTL_CHANGE.png" />
+
+Setelah link utama putus, routing menuju Server DC berpindah ke OSPF melalui **10.96.241.38 (R-UTARA)** pada `Serial0/0/1`, dengan *cost* **129**. Ping ke Server DC juga berhasil **5/5** pada pengujian rute backup.
+
+<img width="650" alt="Routing OSPF melalui R-UTARA dan ping Server DC berhasil" src="assets/02_OSPF_ROUTE_VIA_UTARA_PING_100_PERSEN.png" />
+
+Traceroute setelah failover memperlihatkan jalur yang lebih panjang:
+
+```text
+10.96.224.1 → 10.96.241.38 → 10.96.241.57 → 10.96.239.10
+R-PUSAT        R-UTARA        R-DC            SRV-DC
+```
+
+<img width="650" alt="Traceroute setelah failover melalui link backup L7" src="assets/05_PC_PEGAWAI_OSPF_TRACERT_BACKUP_VIA_UTARA.png" />
+
+Untuk mengembalikan jalur utama setelah pengujian:
+
+```cisco
+configure terminal
+interface Serial0/0/0
+ no shutdown
+end
+show ip ospf neighbor
+write memory
+```
+
+### 8.4 Kesimpulan pengujian OSPF
+
+| Pengujian | Hasil |
+|---|---|
+| OSPF neighbor | 5 neighbor di R-PUSAT berstatus FULL |
+| Rute awal ke Server DC | OSPF via `10.96.241.34` (R-DC), cost 65 |
+| Saat link utama dimatikan | Ping sempat timeout, kemudian pulih secara otomatis |
+| Rute setelah failover | OSPF via `10.96.241.38` (R-UTARA), cost 129 |
+| Traceroute setelah failover | Melewati R-UTARA dan link cadangan L7 |
+
+OSPF berhasil mempertahankan komunikasi menuju Server DC dengan memindahkan trafik dari jalur utama ke jalur backup ketika link utama terputus.
+
+---
+
+## 9. Layanan Aplikasi: DNS, Web, FTP, dan Email
+
+Pengujian layanan aplikasi dilakukan dari **dua wilayah berbeda**, yaitu **PC Pegawai Balai Kota (`10.96.224.2`)** dan **Laptop WiFi Utara (`10.96.0.2`)**.
+
+| Server | IP statis | Layanan |
+|---|---|---|
+| SRV-DC | `10.96.239.10` | DNS, FTP, Email (SMTP/POP3), dan DHCP CCTV |
+| SRV-BALAIKOTA | `10.96.241.10` | HTTP / Web Server |
+
+### 9.1 DNS
+
+DNS digunakan untuk mengubah nama domain menjadi alamat IP. Pada **SRV-DC → Services → DNS**, layanan diaktifkan dan dibuat **A Record**:
+
+| Nama domain | Tipe | Alamat tujuan |
+|---|---|---|
+| `www.k12.smartcity.lab` | A Record | `10.96.241.10` |
+
+<img width="700" alt="Konfigurasi A Record DNS pada SRV-DC" src="assets/01_SERVER_DC_DNS_A_RECORD_K12.png" />
+
+Dari client dilakukan pengujian:
+
+```cmd
+nslookup www.k12.smartcity.lab
+```
+
+Domain berhasil diterjemahkan menjadi **10.96.241.10**, yaitu alamat Web Server. Bukti pengujian tersedia dari PC Pegawai Balai Kota, sedangkan pengujian pada Laptop WiFi Utara juga tampak bersama bukti FTP di bagian 9.3.
+
+<img width="650" alt="Resolusi domain dari PC Pegawai Balai Kota" src="assets/02_PC_PEGAWAI_DNS_RESOLVE_SUCCESS.png" />
+
+### 9.2 HTTP / Web Server
+
+Layanan HTTP dijalankan pada **SRV-BALAIKOTA (`10.96.241.10`)**. Browser dari kedua wilayah membuka alamat domain, bukan alamat IP:
+
+```text
+http://www.k12.smartcity.lab
+```
+
+Halaman *Cisco Packet Tracer* berhasil ditampilkan pada kedua perangkat. Ini menunjukkan DNS dapat mengarahkan client menuju Web Server dan layanan HTTP bisa diakses dari wilayah berbeda.
+
+| PC Pegawai Balai Kota | Laptop WiFi Utara |
+|---|---|
+| <img width="480" alt="Website dari PC Pegawai" src="assets/03_PC_PEGAWAI_HTTP_WEB_SUCCESS.png" /> | <img width="480" alt="Website dari Laptop WiFi Utara" src="assets/07_LAPTOP_UTARA_WEB_DOMAIN_SUCCESS.png" /> |
+
+### 9.3 FTP
+
+Pada **SRV-DC → Services → FTP**, layanan FTP berstatus **On** dan terdapat akun untuk login dan transfer file.
+
+<img width="700" alt="FTP Service aktif pada SRV-DC" src="assets/04_SERVER_DC_FTP_ACTIVE.png" />
+
+Client terhubung ke FTP Server menggunakan:
+
+```cmd
+ftp 10.96.239.10
+```
+
+Setelah login, perintah yang digunakan untuk pengujian transfer adalah:
+
+```text
+put demo_k12.txt
+get demo_k12.txt
+```
+
+**Bukti yang sudah terdokumentasi:** dari Laptop WiFi Utara, login FTP berhasil dan perintah `get demo_k12.txt` menunjukkan **Transfer complete (11 bytes)**. Pada screenshot yang sama juga terlihat hasil `nslookup` dari wilayah Utara.
+
+<img width="650" alt="DNS dan FTP download berhasil dari Laptop WiFi Utara" src="assets/08_LAPTOP_UTARA_DNS_FTP_DOWNLOAD_SUCCESS.png" />
+
+*Catatan dokumentasi:* screenshot hasil **upload (`put`)** belum tersedia dalam kumpulan bukti ini. Untuk demo video, upload tetap perlu ditunjukkan karena ketentuan meminta transfer file, bukan sekadar login atau `dir`.
+
+### 9.4 Email
+
+Layanan Email dijalankan di **SRV-DC** menggunakan domain **`k12.smartcity.lab`**. Layanan **SMTP** digunakan untuk mengirim pesan dan **POP3** untuk mengambil pesan dari server. Akun `pegawai` dan `utara` sudah tercatat pada server.
+
+<img width="700" alt="Konfigurasi SMTP POP3 domain dan akun Email di SRV-DC" src="assets/05_SERVER_DC_EMAIL_ACCOUNTS.png" />
+
+Pengujian dilakukan dengan mengirim email dari **`pegawai@k12.smartcity.lab`** menuju **`utara@k12.smartcity.lab`**, lalu menggunakan menu **Receive** pada Laptop WiFi Utara. Hasil yang tercatat menunjukkan pesan tes masuk ke Mail Browser dengan status **Receive Mail Success**.
+
+<img width="700" alt="Email tes masuk di Laptop WiFi Utara" src="assets/06_LAPTOP_UTARA_EMAIL_RECEIVE_SUCCESS.png" />
+
+### 9.5 Kesimpulan pengujian layanan
+
+| Layanan | Hasil pengujian |
+|---|---|
+| DNS | `www.k12.smartcity.lab` berhasil di-resolve menjadi `10.96.241.10` |
+| Web / HTTP | Website berhasil dibuka dari Balai Kota dan WiFi Utara menggunakan domain |
+| FTP | Login dan download file `demo_k12.txt` berhasil, 11 bytes |
+| Email | SMTP dan POP3 aktif; pengiriman dan penerimaan pesan tes berhasil diuji |
+
+Secara umum layanan DNS, Web, FTP, dan Email telah dapat diakses melalui jaringan Smart City K-12. Bukti tambahan upload FTP dapat dilengkapi pada dokumentasi atau video demo.
